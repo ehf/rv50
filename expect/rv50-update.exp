@@ -1,0 +1,97 @@
+#!/usr/bin/expect -f 
+
+#
+# Usage:
+# ./rv50-update.exp <rv50_IP> <ALEOS_bin_filename>
+#
+#
+# conf file format (file: .rv50-update.conf):
+# ftp_server_IP|ftp_username|ftp_passwd|rv50_username|rv50_password
+#
+
+
+
+# set run properties
+log_user 0 
+set timeout 10
+set send_slow {1 0.02}
+
+# read conf from temporary local file
+set fd [open ".rv50-update.conf" r] 
+set conf_file [read $fd]
+close $fd
+
+# get conf and set variables 
+set conf_data [split $conf_file "|"]
+set ftp_server [lindex $conf_data 0]
+set ftp_user [lindex $conf_data 1]
+set ftp_pw [lindex $conf_data 2]
+set rv50_user [lindex $conf_data 3]
+set rv50_pw [lindex $conf_data 4]
+set rv50_port 2332
+
+# set variables per command-line args
+set rv50_device [lindex $argv 0]
+set rv50_binfile [lindex $argv 1]
+
+# check argv count
+if {[llength $argv] < 2 || [llength $argv] > 2} {
+    puts "Incorrect argument count."
+    puts "Usage: $argv0 <rv50_IP> <ALEOS_bin_filename>"
+    exit 1
+}
+
+# issue telnet connection to device
+spawn telnet $rv50_device $rv50_port
+expect { 
+    "* login:" {
+        send "$rv50_user\r"
+    }
+    "telnet: connect to address $rv50_device: Connection refused" {
+        puts "$rv50_device,telnet_connection_refused"
+        exit 1
+    }
+    "telnet: connect to address $rv50_device: Connection timed out" {
+        puts "$rv50_device,telnet_connection_timed_out"
+        exit 1
+    }
+    timeout {
+        puts "$rv50_device,expect_connection_timeout"
+        exit 1
+    }
+    eof {
+        puts "$rv50_device,expect_eof"
+        exit 1
+    }
+}
+expect "Password:"
+send -s $password ;sleep 1 ; send -s "\r" ; sleep 1
+
+#expect "OK"
+# issue download of firmware update
+#log_user 1
+#send "AT*FWRMUPDATE=$ftp_server,$ftp_user,$ftp_pw,$rv50_binfile\r"
+
+expect {
+    "OK" {
+        # issue firmware update
+        log_user 1
+        send "AT*FWRMUPDATE=$ftp_server,$ftp_user,$ftp_pw,$rv50_binfile\r"
+    }
+    timeout {
+        puts "$rv50_device,expect_password_timeout"
+        exit 1
+    }
+    eof {
+        puts "$rv50_device,expect_password_eof"
+        exit 1
+    }
+}
+
+## need to check for output 
+## need way to test this script 
+
+
+# send "exit\r"
+
+exit 0
