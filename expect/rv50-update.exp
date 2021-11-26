@@ -65,7 +65,7 @@ expect {
     }
 }
 expect "Password:"
-send -s $password ; sleep 1 ; send -s "\r" ; sleep 1
+send -s $rv50_pw ; sleep 1 ; send -s "\r" ; sleep 1
 
 #expect "OK"
 # issue download of firmware update
