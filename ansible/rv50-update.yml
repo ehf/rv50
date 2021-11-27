@@ -1,0 +1,105 @@
+--- 
+
+### Examples:
+# $ export RV50_CONF=$HOME/rv50-update.conf 
+# $ ansible-playbook -i inventory.txt rv50-update.yml 
+# $ ansible-playbook -i inventory.txt rv50-update.yml --extra-vars "serial_limit=5"
+#
+
+# references:
+# https://source.sierrawireless.com/resources/airlink/software_reference_docs/airlink-rv-series---configuration-guide/#sthash.uQqaaVYo.dpbs
+
+
+- hosts: all
+  connection: local
+  gather_facts: False
+  max_fail_percentage: '49'
+  serial: "{{ serial_limit }}"
+  vars_prompt:
+    - name: rv50_pw
+      prompt: "enter RV50 password"
+      private: yes
+    - name: rv50_ftp_pw
+      prompt: "enter FTP password"
+      private: yes
+  vars:
+    serial_limit: '1'
+    pause_seconds: '10'
+    timeout_check: '1200'
+    timeout_delay: '30'
+    conf_file: "{{ lookup('env','RV50_CONF') }}"
+    rv50_ftp_server: "{{ (lookup('file', '{{ conf_file }}') | from_json).get('ftp_server') | default('10.10.10.10', true) }}"
+    rv50_ftp_user: "{{ (lookup('file', '{{ conf_file }}') | from_json).get('ftp_user') | default('ftpuser', true) }}"
+    rv50_user: "{{ (lookup('file', '{{ conf_file }}') | from_json).get('rv50_user') | default('admin', true) }}"
+    rv50_port: "{{ (lookup('file', '{{ conf_file }}') | from_json).get('rv50_port') | default ('2332', true) }}"
+    rv50_binfile: 'LX_4.15.1.003.bin'
+    rv50_update_version: '4.15.1'
+  handlers:
+    - name: pause in between
+      pause: seconds={{ pause_seconds }}
+  tasks:
+    # maybe: 'ATI1'
+    - name: "PRE-UPDATE - telnet to rv50 and query device information"
+      expect:
+        command: telnet {{ inventory_hostname }} {{ rv50_port }}
+        responses:
+          '(.*)login:': "{{ rv50_user }}"
+          '(?i)Password:': "{{ rv50_pw }}"
+          'OK': 'ATI1?'
+      register: rv50_pre_firmware_result
+      failed_when: 
+        - rv50_pre_firmware_result.rc != 0
+      tags:
+        - issue-firmware-update
+        - check-firmware-version-pre
+
+    - name: "telnet to rv50 and issue firmware update"
+      expect:
+        command: telnet {{ inventory_hostname }} {{ rv50_port }}
+        responses:
+          '(.*)login:': "{{ rv50_user }}"
+          '(?i)Password:': "{{ rv50_pw }}"
+          'OK': 'AT*FWRMUPDATE={{ rv50_ftp_server}},{{ rv50_ftp_user}},{{ rv50_ftp_pw }},{{ rv50_binfile }}'
+      register: rv50_update_result
+      when: 
+        - rv50_pre_firmware_result is version(rv50_update_version, '<')
+      failed_when: 
+        - rv50_update_result.rc != 0
+      notify:
+        - pause in between
+      no_log: True
+      tags:
+        - issue-firmware-update
+
+    - name: "telnet to rv50 and confirm unit is back online" 
+      wait_for: 
+        host: "{{ inventory_hostname }}"
+        port: "{{ rv50_port }}"
+        state: started
+        delay: "{{ timeout_delay }}"
+        timeout: "{{ timeout_check }}"
+      tags:
+        - issue-firmware-update
+        
+    # maybe: 'ATI1'
+    - name: "POST-UPDATE - telnet to rv50 and query device information"
+      expect:
+        command: telnet {{ inventory_hostname }} {{ rv50_port }}
+        responses:
+          '(.*)login:': "{{ rv50_user }}"
+          '(?i)Password:': "{{ rv50_pw }}"
+          'OK': 'ATI1?'
+      register: rv50_post_firmware_result
+      failed_when: 
+        - rv50_post_firmware_result.rc != 0
+      tags:
+        - issue-firmware-update
+        - check-firmware-version-post
+
+    - name: "POST-UPDATE - output RV50 firmware version"
+      debug: 
+        msg: "{{ rv50_post_firmware_result.stdout_lines }}"
+      tags:
+        - issue-firmware-update
+        - check-firmware-version
+
